@@ -18,7 +18,7 @@ namespace LiveSplit.UI.Components
         private DeltaTimeFormatter DeltaFormatter { get; set; }
         private string PreviousInformationName { get; set; }
         private TimeSpan PriorRunPrediction { get; set; }
-        private TimeSpan PriorRunPredictionDelta { get; set; }
+        private TimeSpan? PriorRunPredictionDelta { get; set; }
         private int PriorSplitIndex { get; set; }
 
         public float PaddingTop => InternalComponent.PaddingTop;
@@ -37,7 +37,7 @@ namespace LiveSplit.UI.Components
             Formatter = new SplitTimeFormatter(Settings.Accuracy);
             DeltaFormatter = new DeltaTimeFormatter();
             PriorRunPrediction = TimeSpan.Zero;
-            PriorRunPredictionDelta = TimeSpan.Zero;
+            PriorRunPredictionDelta = null;
             PriorSplitIndex = 0;
             InternalComponent = new InfoTimeComponent(null, null, Formatter);
             state.ComparisonRenamed += state_ComparisonRenamed;
@@ -220,20 +220,27 @@ namespace LiveSplit.UI.Components
                 TimeSpan? lastDelta = LiveSplitStateHelper.GetLastDelta(state, state.CurrentSplitIndex, comparison, state.CurrentTimingMethod);
                 var lastDeltaValue = lastDelta ?? TimeSpan.Zero;
                 var liveDelta = state.CurrentTime[state.CurrentTimingMethod] - state.CurrentSplit.Comparisons[comparison][state.CurrentTimingMethod];
-                if (liveDelta > lastDeltaValue)
+                if ((PriorSplitIndex == state.CurrentSplitIndex) && (liveDelta > lastDeltaValue))
                 {
                     InternalComponent.TimeValue = liveDelta + lastSplit;
                 }
                 else if ((null != lastDelta) && (null != lastSplit))
                 {
                     var runPrediction = lastDeltaValue + lastSplit ?? TimeSpan.Zero;
-                    if(PriorSplitIndex != state.CurrentSplitIndex)
+                    if (PriorSplitIndex != state.CurrentSplitIndex)
                     {
-                        PriorRunPredictionDelta = runPrediction - PriorRunPrediction;
+                        if ((PriorSplitIndex < state.CurrentSplitIndex) && (null != state.Run[state.CurrentSplitIndex - 1].SplitTime[state.CurrentTimingMethod]))
+                        {
+                            PriorRunPredictionDelta = runPrediction - PriorRunPrediction;
+                        }
+                        else
+                        {
+                            PriorRunPredictionDelta = null;
+                        }
                         PriorRunPrediction = runPrediction;
                         PriorSplitIndex = state.CurrentSplitIndex;
                     }
-                    if (PriorSplitIndex > 0)
+                    if (null != PriorRunPredictionDelta)
                     {
                         InternalComponent.TimeValue = null;
                         InternalComponent.InformationValue = String.Format("({0}) {1}",
@@ -248,7 +255,7 @@ namespace LiveSplit.UI.Components
                 {
                     PriorSplitIndex = 0;
                     PriorRunPrediction = lastSplit ?? TimeSpan.Zero;
-                    PriorRunPredictionDelta = TimeSpan.Zero;
+                    PriorRunPredictionDelta = null;
                     InternalComponent.TimeValue = lastSplit;
                 }
             }
