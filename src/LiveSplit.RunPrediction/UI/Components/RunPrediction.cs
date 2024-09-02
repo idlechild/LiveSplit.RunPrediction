@@ -15,7 +15,11 @@ namespace LiveSplit.UI.Components
         protected InfoTimeComponent InternalComponent { get; set; }
         public RunPredictionSettings Settings { get; set; }
         private SplitTimeFormatter Formatter { get; set; }
+        private DeltaTimeFormatter DeltaFormatter { get; set; }
         private string PreviousInformationName { get; set; }
+        private TimeSpan PriorRunPrediction { get; set; }
+        private TimeSpan PriorRunPredictionDelta { get; set; }
+        private int PriorSplitIndex { get; set; }
 
         public float PaddingTop => InternalComponent.PaddingTop;
         public float PaddingLeft => InternalComponent.PaddingLeft;
@@ -31,6 +35,10 @@ namespace LiveSplit.UI.Components
                 CurrentState = state
             };
             Formatter = new SplitTimeFormatter(Settings.Accuracy);
+            DeltaFormatter = new DeltaTimeFormatter();
+            PriorRunPrediction = TimeSpan.Zero;
+            PriorRunPredictionDelta = TimeSpan.Zero;
+            PriorSplitIndex = 0;
             InternalComponent = new InfoTimeComponent(null, null, Formatter);
             state.ComparisonRenamed += state_ComparisonRenamed;
         }
@@ -127,9 +135,9 @@ namespace LiveSplit.UI.Components
                 case Run.PersonalBestComparisonName:
                     return "Current Pace";
                 case BestSegmentsComparisonGenerator.ComparisonName:
-                    return "Best Possible Time";
+                    return "Best Possible";
                 case WorstSegmentsComparisonGenerator.ComparisonName:
-                    return "Worst Possible Time";
+                    return "Worst Possible";
                 case AverageSegmentsComparisonGenerator.ComparisonName:
                     return "Predicted Time";
                 default:
@@ -158,7 +166,6 @@ namespace LiveSplit.UI.Components
                 case BestSegmentsComparisonGenerator.ComparisonName:
                     InternalComponent.AlternateNameText = new []
                     {
-                        "Best Poss. Time",
                         "Best Time",
                         "BPT"
                     };
@@ -166,14 +173,15 @@ namespace LiveSplit.UI.Components
                 case WorstSegmentsComparisonGenerator.ComparisonName:
                     InternalComponent.AlternateNameText = new []
                     {
-                        "Worst Poss. Time",
-                        "Worst Time"
+                        "Worst Time",
+                        "WPT"
                     };
                     break;
                 case AverageSegmentsComparisonGenerator.ComparisonName:
                     InternalComponent.AlternateNameText = new []
                     {
-                        "Pred. Time",
+                        "Predicted",
+                        "Pred."
                     };
                     break;
                 default:
@@ -203,22 +211,65 @@ namespace LiveSplit.UI.Components
 
             if (InternalComponent.InformationName.StartsWith("Current Pace") && state.CurrentPhase == TimerPhase.NotRunning)
             {
+                PriorSplitIndex = 0;
                 InternalComponent.TimeValue = null;
             }
             else if (state.CurrentPhase == TimerPhase.Running || state.CurrentPhase == TimerPhase.Paused)
             {
-                TimeSpan? delta = LiveSplitStateHelper.GetLastDelta(state, state.CurrentSplitIndex, comparison, state.CurrentTimingMethod) ?? TimeSpan.Zero;
+                var lastSplit = state.Run.Last().Comparisons[comparison][state.CurrentTimingMethod];
+                TimeSpan? lastDelta = LiveSplitStateHelper.GetLastDelta(state, state.CurrentSplitIndex, comparison, state.CurrentTimingMethod);
+                var lastDeltaValue = lastDelta ?? TimeSpan.Zero;
                 var liveDelta = state.CurrentTime[state.CurrentTimingMethod] - state.CurrentSplit.Comparisons[comparison][state.CurrentTimingMethod];
-                if (liveDelta > delta)
-                    delta = liveDelta;
-                InternalComponent.TimeValue = delta + state.Run.Last().Comparisons[comparison][state.CurrentTimingMethod];
+                if (liveDelta > lastDeltaValue)
+                {
+                    InternalComponent.TimeValue = liveDelta + lastSplit;
+                }
+                else if ((null != lastDelta) && (null != lastSplit))
+                {
+                    var runPrediction = lastDeltaValue + lastSplit ?? TimeSpan.Zero;
+                    if(PriorSplitIndex != state.CurrentSplitIndex)
+                    {
+                        PriorRunPredictionDelta = runPrediction - PriorRunPrediction;
+                        PriorRunPrediction = runPrediction;
+                        PriorSplitIndex = state.CurrentSplitIndex;
+                    }
+                    if (PriorSplitIndex > 0)
+                    {
+                        InternalComponent.TimeValue = null;
+                        InternalComponent.InformationValue = String.Format("({0}) {1}",
+                            DeltaFormatter.Format(PriorRunPredictionDelta), InternalComponent.Formatter.Format(runPrediction));
+                    }
+                    else
+                    {
+                        InternalComponent.TimeValue = runPrediction;
+                    }
+                }
+                else
+                {
+                    PriorSplitIndex = 0;
+                    PriorRunPrediction = lastSplit ?? TimeSpan.Zero;
+                    PriorRunPredictionDelta = TimeSpan.Zero;
+                    InternalComponent.TimeValue = lastSplit;
+                }
             }
             else if (state.CurrentPhase == TimerPhase.Ended)
             {
-                InternalComponent.TimeValue = state.Run.Last().SplitTime[state.CurrentTimingMethod];
+                var finalTime = state.Run.Last().SplitTime[state.CurrentTimingMethod];
+                if (PriorSplitIndex > 0)
+                {
+                    var finalImprovement = finalTime - PriorRunPrediction;
+                    InternalComponent.TimeValue = null;
+                    InternalComponent.InformationValue = String.Format("({0}) {1}",
+                        DeltaFormatter.Format(finalImprovement), InternalComponent.Formatter.Format(finalTime));
+                }
+                else
+                {
+                    InternalComponent.TimeValue = finalTime;
+                }
             }
             else
             {
+                PriorSplitIndex = 0;
                 InternalComponent.TimeValue = state.Run.Last().Comparisons[comparison][state.CurrentTimingMethod];
             }
 
